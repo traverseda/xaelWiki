@@ -96,11 +96,16 @@ curl -fsSL https://raw.githubusercontent.com/traverseda/xaelWiki/main/install.sh
 
 Overridable via env: `XAEL_INSTALL_DIR`, `XAEL_NOTES_DIR`,
 `XAEL_BRANCH`, `XAEL_REPO_URL`, `XAEL_SERVICE_USER`,
-`XAEL_GIT_REMOTE` (SSH URL of a separate notes repo to push to).
-Run it again to update. On first run it
+`XAEL_GIT_REMOTE` (SSH URL of a separate notes repo to push to),
+`XAEL_AUTO_UPDATE=0` (disable auto-update). Run it again to update. On first run it
 generates a bearer token, saves it to `~/.config/xaelwiki/env` (mode 600),
 and installs a systemd **user** service (`~/.config/systemd/user/xaelwiki.service`,
 auto-enabled):
+
+By default the install also enables a systemd **timer**
+(`xaelwiki-update.timer`) that auto-updates the server daily: it pulls
+`$XAEL_BRANCH`, runs `uv sync`, and restarts the service. Set
+`XAEL_AUTO_UPDATE=0` at install time to skip the timer entirely.
 
 ## Run
 
@@ -149,6 +154,16 @@ It runs from `~/.config/systemd/user/xaelwiki.service` (generated from
 `deploy/xaelwiki.user.service`), loads the token from
 `~/.config/xaelwiki/env`, and listens on `0.0.0.0:8000/mcp`. Terminate TLS
 with a reverse proxy of your choice.
+
+Auto-update runs from `deploy/xaelwiki.update.service` +
+`deploy/xaelwiki.update.timer` (a daily `oneshot` that pulls `$XAEL_BRANCH`,
+runs `uv sync`, and restarts the service). Inspect/trigger it with:
+
+```sh
+systemctl --user list-timers xaelwiki-update.timer
+systemctl --user start xaelwiki-update.service   # update now
+journalctl --user -u xaelwiki-update.service -f
+```
 
 `deploy/xaelwiki.service` is an alternative **system** unit for root-managed
 deployments: point it at the repo and set the token in a 0600 env file, then

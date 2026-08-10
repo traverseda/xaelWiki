@@ -1,0 +1,8 @@
+[Unit]
+Description=Auto-update xaelwiki
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__INSTALL_DIR__/deploy/update.sh __INSTALL_DIR__ __BRANCH__ __SCOPE__

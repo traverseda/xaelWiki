@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_URL="${XAEL_REPO_URL:-https://github.com/traverseda/xaelWiki.git}"
 BRANCH="${XAEL_BRANCH:-main}"
+AUTO_UPDATE="${XAEL_AUTO_UPDATE:-1}"
 
 if [[ "$(id -u)" -eq 0 ]]; then
     SCOPE="system"
@@ -154,6 +155,31 @@ else
     systemctl enable --now xaelwiki
 fi
 
+if [[ "$AUTO_UPDATE" != "0" ]]; then
+    echo "==> enabling auto-update timer"
+    mkdir -p "$UNIT_DIR"
+    sed \
+        -e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+        -e "s|__BRANCH__|$BRANCH|g" \
+        -e "s|__SCOPE__|$SCOPE|g" \
+        "$INSTALL_DIR/deploy/xaelwiki.update.service" > "$UNIT_DIR/xaelwiki-update.service"
+    cp "$INSTALL_DIR/deploy/xaelwiki.update.timer" "$UNIT_DIR/xaelwiki-update.timer"
+    if [[ "$SCOPE" == "user" ]]; then
+        systemctl --user daemon-reload
+        systemctl --user enable --now xaelwiki-update.timer
+    else
+        systemctl daemon-reload
+        systemctl enable --now xaelwiki-update.timer
+    fi
+else
+    echo "==> auto-update disabled (XAEL_AUTO_UPDATE=0)"
+    if [[ "$SCOPE" == "user" ]]; then
+        systemctl --user disable --now xaelwiki-update.timer 2>/dev/null || true
+    else
+        systemctl disable --now xaelwiki-update.timer 2>/dev/null || true
+    fi
+fi
+
 echo
 echo "xaelwiki installed and running as a systemd ${SCOPE} service."
 echo
@@ -162,4 +188,9 @@ echo "  journalctl --${SCOPE} -u xaelwiki -f"
 echo
 echo "token file: $ENV_FILE (mode 600, never commit or paste it)"
 echo "notes live in $NOTES_DIR"
+if [[ "$AUTO_UPDATE" != "0" ]]; then
+    echo "auto-update: enabled (daily); disable with XAEL_AUTO_UPDATE=0"
+else
+    echo "auto-update: disabled (XAEL_AUTO_UPDATE=0)"
+fi
 echo "install again to update: curl -fsSL https://raw.githubusercontent.com/traverseda/xaelWiki/main/install.sh | bash"
