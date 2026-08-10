@@ -3,18 +3,20 @@ set -euo pipefail
 
 REPO_URL="${XAEL_REPO_URL:-https://github.com/traverseda/xaelWiki.git}"
 BRANCH="${XAEL_BRANCH:-main}"
-INSTALL_DIR="${XAEL_INSTALL_DIR:-$HOME/.local/share/xaelwiki}"
-NOTES_DIR="${XAEL_NOTES_DIR:-$INSTALL_DIR/notes}"
 
 if [[ "$(id -u)" -eq 0 ]]; then
     SCOPE="system"
     SERVICE_USER="${XAEL_SERVICE_USER:-xaelwiki}"
+    INSTALL_DIR="${XAEL_INSTALL_DIR:-/opt/xaelwiki}"
+    NOTES_DIR="${XAEL_NOTES_DIR:-$INSTALL_DIR/notes}"
     UNIT_DIR="/etc/systemd/system"
     ENV_FILE="${XAEL_ENV_FILE:-/etc/xaelwiki/env}"
     UNIT_TEMPLATE="$INSTALL_DIR/deploy/xaelwiki.service"
 else
     SCOPE="user"
     SERVICE_USER="$(id -un)"
+    INSTALL_DIR="${XAEL_INSTALL_DIR:-$HOME/.local/share/xaelwiki}"
+    NOTES_DIR="${XAEL_NOTES_DIR:-$INSTALL_DIR/notes}"
     UNIT_DIR="$HOME/.config/systemd/user"
     ENV_FILE="${XAEL_ENV_FILE:-$HOME/.config/xaelwiki/env}"
     UNIT_TEMPLATE="$INSTALL_DIR/deploy/xaelwiki.user.service"
