@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .DS_Store
+
+# notes live in their own git repo, not the code checkout
+notes/

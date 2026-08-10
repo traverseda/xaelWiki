@@ -67,16 +67,27 @@ if [[ "$SCOPE" == "system" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 fi
 
-mkdir -p "$NOTES_DIR"
+echo "==> setting up the notes repo"
+if [[ ! -d "$NOTES_DIR/.git" ]]; then
+    mkdir -p "$NOTES_DIR"
+    git init -b main "$NOTES_DIR"
+    cp -r "$INSTALL_DIR/deploy/notes-skeleton/notes/." "$NOTES_DIR/"
+    git -C "$NOTES_DIR" add -A
+    git -C "$NOTES_DIR" commit -m "xael: seed notes vault" -q || true
+fi
+git -C "$NOTES_DIR" config user.name "xaelwiki"
+git -C "$NOTES_DIR" config user.email "xaelwiki@local"
+if [[ -n "${XAEL_GIT_REMOTE:-}" ]]; then
+    if ! git -C "$NOTES_DIR" remote | grep -qx origin; then
+        git -C "$NOTES_DIR" remote add origin "$XAEL_GIT_REMOTE"
+    else
+        git -C "$NOTES_DIR" remote set-url origin "$XAEL_GIT_REMOTE"
+    fi
+fi
+
 if [[ "$SCOPE" == "system" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$NOTES_DIR"
 fi
-if [[ ! -d "$INSTALL_DIR/.git" ]]; then
-    echo "==> initializing notes git repo"
-    git init -b main "$INSTALL_DIR"
-fi
-git -C "$INSTALL_DIR" config user.name "xaelwiki"
-git -C "$INSTALL_DIR" config user.email "xaelwiki@local"
 
 ENV_FILE="${ENV_FILE:-$HOME/.config/xaelwiki/env}"
 if [[ ! -s "$ENV_FILE" ]]; then

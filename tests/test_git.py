@@ -9,7 +9,7 @@ from xaelwiki.storage import NoteStore
 
 def test_mutate_commits_changes(tmp_path: Path):
     store = NoteStore(tmp_path)
-    git = GitRepo(tmp_path)
+    git = GitRepo(tmp_path / "notes")
     note = store.capture("One", body="hello")
     git.mutate("capture one")
     assert git.log(5)[0]["subject"] == "capture one"
@@ -17,7 +17,7 @@ def test_mutate_commits_changes(tmp_path: Path):
 
 def test_revert_removes_last_change(tmp_path: Path):
     store = NoteStore(tmp_path)
-    git = GitRepo(tmp_path)
+    git = GitRepo(tmp_path / "notes")
     n1 = store.capture("One", body="keep me")
     git.mutate("capture one")
     n2 = store.capture("Two", body="remove me")
@@ -34,7 +34,7 @@ def test_revert_removes_last_change(tmp_path: Path):
 
 def test_revert_multi_steps(tmp_path: Path):
     store = NoteStore(tmp_path)
-    git = GitRepo(tmp_path)
+    git = GitRepo(tmp_path / "notes")
     ids = []
     for title in ("A", "B", "C"):
         note = store.capture(title, body="x")
@@ -48,24 +48,26 @@ def test_revert_multi_steps(tmp_path: Path):
 
 
 def test_log_empty_repo(tmp_path: Path):
-    git = GitRepo(tmp_path)
+    git = GitRepo(tmp_path / "notes")
     assert git.log() == []
     assert git.revert(1)["reverted"] == []
 
 
 def test_ensure_sets_identity_when_missing(tmp_path: Path):
-    git = GitRepo(tmp_path)
+    git = GitRepo(tmp_path / "notes")
     git.ensure()
     assert git._run("config", "--local", "--get", "user.name").stdout.strip() == "xaelwiki"
     assert git._run("config", "--local", "--get", "user.email").stdout.strip() == "xaelwiki@local"
 
 
 def test_ensure_does_not_clobber_existing_identity(tmp_path: Path):
-    subprocess.run(["git", "-C", str(tmp_path), "init", "-b", "main"], capture_output=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "--local", "user.name", "someone-else"], capture_output=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "--local", "user.email", "someone@else.dev"], capture_output=True)
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(notes_dir), "init", "-b", "main"], capture_output=True)
+    subprocess.run(["git", "-C", str(notes_dir), "config", "--local", "user.name", "someone-else"], capture_output=True)
+    subprocess.run(["git", "-C", str(notes_dir), "config", "--local", "user.email", "someone@else.dev"], capture_output=True)
 
-    git = GitRepo(tmp_path)
+    git = GitRepo(notes_dir)
     git.ensure()
     assert git._run("config", "--local", "--get", "user.name").stdout.strip() == "someone-else"
     assert git._run("config", "--local", "--get", "user.email").stdout.strip() == "someone@else.dev"

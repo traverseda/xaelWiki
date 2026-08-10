@@ -13,6 +13,10 @@ separate organizer agent keeps the wiki structured over time.
 - **Human-readable markdown.** Notes are plain `.md` files with YAML
   frontmatter, stored in a git repo. Open them in vim, Obsidian, or a browser;
   `git` is the backup and the undo.
+- **Notes are their own repo.** The code checkout and the notes vault are
+  separate git repositories. The installer seeds a fresh `notes/` repo from
+  `deploy/notes-skeleton/` and can wire it to any remote (`XAEL_GIT_REMOTE`);
+  the server auto-commits, pushes, and syncs only that vault.
 - **Safe by construction.** No delete tool (archive instead), every mutation
   auto-commits, rewrites require the current revision, and `undo` reverts
   through git.
@@ -91,7 +95,9 @@ curl -fsSL https://raw.githubusercontent.com/traverseda/xaelWiki/main/install.sh
 ```
 
 Overridable via env: `XAEL_INSTALL_DIR`, `XAEL_NOTES_DIR`,
-`XAEL_BRANCH`, `XAEL_REPO_URL`. Run it again to update. On first run it
+`XAEL_BRANCH`, `XAEL_REPO_URL`, `XAEL_SERVICE_USER`,
+`XAEL_GIT_REMOTE` (SSH URL of a separate notes repo to push to).
+Run it again to update. On first run it
 generates a bearer token, saves it to `~/.config/xaelwiki/env` (mode 600),
 and installs a systemd **user** service (`~/.config/systemd/user/xaelwiki.service`,
 auto-enabled):

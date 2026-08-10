@@ -30,6 +30,7 @@ class GitRepo:
         return (self.root / ".git").exists()
 
     def ensure(self) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
         if not self.is_repo():
             result = self._run("init", "-b", "main")
             if result.returncode:
@@ -40,7 +41,6 @@ class GitRepo:
             self._run("config", "--local", "user.name", "xaelwiki")
         if not email.stdout.strip():
             self._run("config", "--local", "user.email", "xaelwiki@local")
-        self.root.joinpath("notes").mkdir(parents=True, exist_ok=True)
 
     def has_remote(self) -> bool:
         return bool(self._run("remote").stdout.strip())
@@ -55,10 +55,7 @@ class GitRepo:
         return None
 
     def commit(self, message: str) -> bool:
-        if self.root.joinpath("notes").exists():
-            add = self._run("add", "-A", "--", "notes")
-        else:
-            add = self._run("add", "-A")
+        add = self._run("add", "-A")
         if add.returncode:
             raise GitError(add.stderr.strip() or "git add failed")
         result = self._run("commit", "-m", message)
@@ -111,18 +108,18 @@ class GitRepo:
         steps = min(steps, count)
         hashes = self._run("log", f"-n{steps}", "--format=%H").stdout.strip().splitlines()
 
-        # Restore the notes/ tree to the state before the reverted commits, as
-        # a single commit. Avoids the conflict-prone sequential `git revert`.
+        # Restore the tree to the state before the reverted commits, as a
+        # single commit. Avoids the conflict-prone sequential `git revert`.
         if steps < count:
             base = self._run("rev-parse", f"HEAD~{steps}").stdout.strip()
-            clear = self._run("rm", "-r", "-q", "--ignore-unmatch", "--", "notes")
+            clear = self._run("rm", "-r", "-q", "--ignore-unmatch", "--", ".")
             if clear.returncode:
                 raise GitError(clear.stderr.strip() or "git rm failed")
-            restore = self._run("checkout", base, "--", "notes")
+            restore = self._run("checkout", base, "--", ".")
             if restore.returncode:
                 raise GitError(restore.stderr.strip() or "git checkout failed")
         else:
-            clear = self._run("rm", "-r", "-q", "--ignore-unmatch", "--", "notes")
+            clear = self._run("rm", "-r", "-q", "--ignore-unmatch", "--", ".")
             if clear.returncode:
                 raise GitError(clear.stderr.strip() or "git rm failed")
 

@@ -90,7 +90,7 @@ def build_server(
 ) -> FastMCP:
     store = NoteStore(root, read_only=read_only)
     store.ensure_layout()
-    git = GitRepo(root, auto_push=auto_push, auto_pull=auto_pull)
+    git = GitRepo(root / "notes", auto_push=auto_push, auto_pull=auto_pull)
     git.ensure()
 
     mcp = FastMCP("xaelwiki", instructions=INSTRUCTIONS)
