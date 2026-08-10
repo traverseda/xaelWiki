@@ -182,6 +182,83 @@ def test_search_result_shape(tmp_path):
     assert {"id", "title", "status", "folder", "tags", "updated", "snippet"} <= keys
 
 
+def test_search_word_boundaries_not_substrings(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Lock picking", body="a hobby about locksmithing")
+    store.capture("Postgres locking", body="row locks")
+    assert [r["title"] for r in store.search(query="lock")] == ["Lock picking"]
+    assert [r["title"] for r in store.search(query="locking")] == ["Postgres locking"]
+
+
+def test_search_punctuation_does_not_break_tokens(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres, locks", body="rows, are, locked")
+    assert [r["title"] for r in store.search(query="postgres")] == ["Postgres, locks"]
+    assert [r["title"] for r in store.search(query="locks")] == ["Postgres, locks"]
+
+
+def test_search_natural_language_phrase_recalls_ranked(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres row locking", body="rows are locked on commit")
+    store.capture("Server setup", body="postgres on the box")
+    results = store.search(query="how to lock rows in postgres")
+    assert [r["title"] for r in results] == ["Postgres row locking", "Server setup"]
+
+
+def test_search_stopword_only_query_lists_all(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Alpha", body="x")
+    store.capture("Beta", body="y")
+    assert {r["title"] for r in store.search(query="how to in the")} == {"Alpha", "Beta"}
+
+
+def test_search_phrase_query_exact(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres locks", body="rows are locked")
+    store.capture("Postgres setup", body="locking rows is a thing")
+    results = store.search(query='"postgres locks"')
+    assert [r["title"] for r in results] == ["Postgres locks"]
+
+
+def test_search_explicit_and_query(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres locks", body="rows are locked", tags=["db"])
+    store.capture("Postgres setup", body="postgres on the box")
+    results = store.search(query="postgres AND db")
+    assert [r["title"] for r in results] == ["Postgres locks"]
+
+
+def test_search_not_query(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres locks", body="rows are locked", tags=["db"])
+    store.capture("Postgres setup", body="postgres on the box")
+    results = store.search(query="postgres NOT db")
+    assert [r["title"] for r in results] == ["Postgres setup"]
+
+
+def test_search_prefix_query(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Borrow checker", body="rust ownership")
+    store.capture("Bound check", body="other stuff")
+    results = store.search(query="borrow*")
+    assert [r["title"] for r in results] == ["Borrow checker"]
+
+
+def test_search_column_filter_query(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres locks", body="rows are locked")
+    store.capture("Server setup", body="postgres on the box")
+    results = store.search(query="title:postgres")
+    assert [r["title"] for r in results] == ["Postgres locks"]
+
+
+def test_search_snippet_highlights_matched_token(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Alpha", body="unrelated stuff here that goes on and on about things\nlocked row in here")
+    result = store.search(query="row")[0]
+    assert "row" in result["snippet"]
+
+
 def test_read_only_blocks_writes(tmp_path):
     store = make_store(tmp_path, read_only=True)
     with pytest.raises(ReadOnly):

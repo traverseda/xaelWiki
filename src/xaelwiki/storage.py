@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import secrets
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,23 @@ def slugify(title: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = re.sub(r"-+", "-", slug).strip("-")
     return slug or "note"
+
+
+STOPWORDS = {
+    "a", "about", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "in", "is", "it", "of", "on", "or", "that", "the", "this", "to",
+    "was", "what", "when", "where", "which", "who", "why", "with", "you",
+}
+
+FIELD_WEIGHTS = (("title", 100), ("tags", 50), ("slug", 40), ("body", 10))
+FTS_COLUMNS = ("title", "tags", "slug", "body")
+FTS_WEIGHTS = (100.0, 50.0, 40.0, 10.0)
+
+EXPLICIT_RE = re.compile(r'["*]|\b(AND|OR|NOT)\b|:')
+
+
+def _tokens(text: str | None) -> list[str]:
+    return [t for t in re.split(r"[^\w_]+", (text or "").lower()) if t]
 
 
 class NoteStore:
@@ -451,40 +469,94 @@ class NoteStore:
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         notes = self._scan()
-        q = (query or "").strip().lower()
+        raw = (query or "").strip()
+        q = raw.lower()
         want_tags = {t.strip().lower() for t in (tags or []) if t.strip()}
-        scored: list[tuple[int, dict[str, Any]]] = []
-        for note in notes.values():
+
+        def passes(note: dict[str, Any]) -> bool:
             if status and note.get("status") != status:
-                continue
+                return False
             if folder and note.get("folder") != folder:
-                continue
+                return False
             if want_tags:
                 have = {t.lower() for t in (note.get("tags") or [])}
                 if not want_tags <= have:
-                    continue
-            score = 0
-            if q:
-                title = (note.get("title") or "").lower()
-                tag_list = [t.lower() for t in (note.get("tags") or [])]
-                body = (note.get("body") or "").lower()
-                if q in title:
-                    score += 100
-                if any(q in t for t in tag_list):
-                    score += 50
-                if q in note.get("slug", ""):
-                    score += 40
-                if q in body:
-                    score += 10
-                if score == 0:
-                    continue
-            scored.append((score, note))
+                    return False
+            return True
 
-        scored.sort(key=lambda item: item[1].get("updated", ""), reverse=True)
-        scored.sort(key=lambda item: item[0], reverse=True)
+        ordered: list[dict[str, Any]] = []
+        if q and EXPLICIT_RE.search(raw):
+            ordered = [
+                notes[i] for i in self._fts_hits(raw) if i in notes and passes(notes[i])
+            ]
+        elif q:
+            tokens = [t for t in _tokens(q) if t not in STOPWORDS]
+            if tokens:
+                ranked = []
+                for note_id in self._fts_hits(" OR ".join(tokens)):
+                    note = notes.get(note_id)
+                    if note is None or not passes(note):
+                        continue
+                    ranked.append((self._coverage(note, tokens), note))
+                ranked.sort(key=lambda item: item[1].get("updated", ""), reverse=True)
+                ranked.sort(key=lambda item: item[0], reverse=True)
+                ordered = [note for _, note in ranked]
+            else:
+                ordered = [n for n in notes.values() if passes(n)]
+        else:
+            ordered = [n for n in notes.values() if passes(n)]
+            ordered.sort(key=lambda note: note.get("updated", ""), reverse=True)
 
+        return self._results(ordered, q, limit)
+
+    def _fts_hits(self, expr: str) -> list[str]:
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE notes_fts USING fts5("
+                "title, tags, slug, body, note_id UNINDEXED, tokenize='unicode61')"
+            )
+            conn.executemany(
+                "INSERT INTO notes_fts VALUES (?,?,?,?,?)",
+                (
+                    (
+                        note.get("title") or "",
+                        " ".join(note.get("tags") or []),
+                        note.get("slug") or "",
+                        note.get("body") or "",
+                        note_id,
+                    )
+                    for note_id, note in self._notes.items()
+                ),
+            )
+            weights = ", ".join(f"{w:.1f}" for w in FTS_WEIGHTS)
+            rows = conn.execute(
+                f"SELECT note_id FROM notes_fts WHERE notes_fts MATCH ? "
+                f"ORDER BY bm25(notes_fts, {weights})",
+                (expr,),
+            ).fetchall()
+            return [row[0] for row in rows]
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _coverage(note: dict[str, Any], tokens: list[str]) -> int:
+        score = 0
+        for field, weight in FIELD_WEIGHTS:
+            values = note.get(field)
+            if field == "tags":
+                values = " ".join(values or [])
+            if not values:
+                continue
+            terms = set(_tokens(values))
+            for token in tokens:
+                if token in terms:
+                    score += weight
+        return score
+
+    def _results(self, ordered: list[dict[str, Any]], q: str, limit: int) -> list[dict[str, Any]]:
         results = []
-        for _score, note in scored[:limit]:
+        for note in ordered[:limit]:
             results.append(
                 {
                     "id": note["id"],
@@ -501,11 +573,15 @@ class NoteStore:
     @staticmethod
     def _snippet(note: dict[str, Any], q: str) -> str:
         body = note.get("body") or ""
-        if q:
-            idx = body.lower().find(q)
-            if idx >= 0:
+        tokens = [t for t in _tokens(q) if t not in STOPWORDS]
+        if tokens:
+            low = body.lower()
+            hits = [(low.find(t), t) for t in tokens]
+            hits = [(i, t) for i, t in hits if i >= 0]
+            if hits:
+                idx, token = min(hits)
                 start = max(0, idx - 40)
-                end = min(len(body), idx + len(q) + 80)
+                end = min(len(body), idx + len(token) + 80)
                 segment = body[start:end].strip()
                 prefix = "…" if start else ""
                 suffix = "…" if end < len(body) else ""
