@@ -1,0 +1,23 @@
+[project]
+name = "xaelwiki"
+version = "0.1.0"
+description = "Shared markdown notes MCP server for AI agents"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastmcp>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+xaelwiki = "xaelwiki.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
