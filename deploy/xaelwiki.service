@@ -10,7 +10,8 @@ Environment=XAEL_TRANSPORT=streamable-http
 Environment=XAEL_HOST=0.0.0.0
 Environment=XAEL_PORT=8000
 Environment=XAEL_PATH=/mcp
-Environment=XAEL_AUTH_TOKEN=CHANGE_ME
+# Token is loaded from a 0600 file, not hardcoded here.
+EnvironmentFile=%h/.config/xaelwiki/env
 # Environment=XAEL_READ_ONLY=1
 # Environment=XAEL_AUTO_PUSH=0
 ExecStart=/home/traverseda/Code/personal/xaelWiki/.venv/bin/xaelwiki

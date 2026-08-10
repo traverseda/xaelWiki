@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from xaelwiki.server import WRITE_TOOLS, build_server
+from xaelwiki.server import BearerAuth, WRITE_TOOLS, build_server
 
 EXPECTED_TOOLS = ["search", "read", "capture", "append", "update", "tag", "move", "undo"]
 
@@ -55,6 +55,39 @@ def test_read_only_disables_write_tools(tmp_path: Path):
     names = {t.name for t in tools}
     assert {"search", "read"} <= names
     assert not (names & WRITE_TOOLS)
+
+
+def test_bearer_auth_accepts_exact_token_only():
+    async def noop_receive():
+        return {"type": "http.request"}
+
+    def make_auth(called):
+        async def app(scope, receive, send_message):
+            called.append(True)
+
+        return BearerAuth(app, "sekrit")
+
+    async def run_case(auth, headers):
+        statuses = []
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                statuses.append(message["status"])
+
+        await auth({"type": "http", "headers": headers}, noop_receive, send)
+        return statuses
+
+    wrong_called: list = []
+    wrong_statuses = asyncio.run(run_case(make_auth(wrong_called), [(b"authorization", b"Bearer wrong")]))
+    assert wrong_statuses == [401] and not wrong_called
+
+    empty_called: list = []
+    empty_statuses = asyncio.run(run_case(make_auth(empty_called), []))
+    assert empty_statuses == [401] and not empty_called
+
+    ok_called: list = []
+    ok_statuses = asyncio.run(run_case(make_auth(ok_called), [(b"authorization", b"Bearer sekrit")]))
+    assert ok_statuses == [] and len(ok_called) == 1
 
 
 def test_end_to_end_lifecycle(tmp_path: Path):

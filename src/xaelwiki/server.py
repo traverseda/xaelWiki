@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import os
 from enum import Enum
 from pathlib import Path
@@ -54,7 +55,7 @@ class BearerAuth:
 
     def __init__(self, app: ASGIApp, token: str):
         self.app = app
-        self.token = token
+        self.token = token.encode()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
@@ -62,7 +63,8 @@ class BearerAuth:
                 k.lower(): v for k, v in scope.get("headers", [])
             }
             auth = headers.get(b"authorization", b"")
-            if auth != b"Bearer " + self.token.encode():
+            expected = b"Bearer " + self.token
+            if len(auth) != len(expected) or not hmac.compare_digest(auth, expected):
                 body = b"unauthorized"
                 await send(
                     {
@@ -267,7 +269,13 @@ def main(argv: list[str] | None = None) -> None:
         mcp.run(transport="stdio")
         return
 
-    middleware = [Middleware(BearerAuth, token=token)] if token else []
+    if not token:
+        raise SystemExit(
+            "error: HTTP transport requires XAEL_AUTH_TOKEN; "
+            "set it or use --transport stdio"
+        )
+
+    middleware = [Middleware(BearerAuth, token=token)]
     mcp.run(
         transport=args.transport,
         host=args.host,
