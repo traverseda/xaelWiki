@@ -54,6 +54,10 @@ fi
 echo "==> installing python dependencies"
 uv sync --project "$INSTALL_DIR"
 
+if [[ "$SCOPE" == "system" ]]; then
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+fi
+
 mkdir -p "$NOTES_DIR"
 if [[ "$SCOPE" == "system" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$NOTES_DIR"
