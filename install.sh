@@ -46,7 +46,30 @@ if [[ ! -s "$ENV_FILE" ]]; then
     chmod 600 "$ENV_FILE"
 fi
 
+prepare_user_bus() {
+    local runtime_dir="/run/user/$(id -u)"
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$runtime_dir}"
+    export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
+    if [[ ! -S "$XDG_RUNTIME_DIR/bus" ]]; then
+        echo "==> user systemd manager not running; enabling linger"
+        if command -v loginctl >/dev/null 2>&1 && loginctl enable-linger "$(id -un)" 2>/dev/null; then
+            for _ in $(seq 1 20); do
+                [[ -S "$XDG_RUNTIME_DIR/bus" ]] && break
+                sleep 0.5
+            done
+        fi
+        if [[ ! -S "$XDG_RUNTIME_DIR/bus" ]]; then
+            echo "error: cannot reach the user systemd bus ($XDG_RUNTIME_DIR/bus)" >&2
+            echo "this container has no running user session. as root, run:" >&2
+            echo "  loginctl enable-linger $(id -un)" >&2
+            echo "then rerun this installer as $(id -un)." >&2
+            exit 1
+        fi
+    fi
+}
+
 echo "==> installing systemd user service"
+prepare_user_bus
 UNIT_DIR="$HOME/.config/systemd/user"
 mkdir -p "$UNIT_DIR"
 sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$INSTALL_DIR/deploy/xaelwiki.user.service" > "$UNIT_DIR/xaelwiki.service"
