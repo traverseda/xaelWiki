@@ -46,11 +46,18 @@ if [[ ! -s "$ENV_FILE" ]]; then
     chmod 600 "$ENV_FILE"
 fi
 
+echo "==> installing systemd user service"
+UNIT_DIR="$HOME/.config/systemd/user"
+mkdir -p "$UNIT_DIR"
+sed "s|__INSTALL_DIR__|$INSTALL_DIR|g" "$INSTALL_DIR/deploy/xaelwiki.user.service" > "$UNIT_DIR/xaelwiki.service"
+systemctl --user daemon-reload
+systemctl --user enable --now xaelwiki
+
 echo
-echo "xaelwiki installed. run:"
+echo "xaelwiki installed and running as a user service."
 echo
-echo "  export XAEL_AUTH_TOKEN=\$(cat $ENV_FILE | cut -d= -f2)"
-echo "  $INSTALL_DIR/.venv/bin/xaelwiki --transport streamable-http --host 0.0.0.0 --port 8000"
+echo "  systemctl --user status xaelwiki"
+echo "  journalctl --user -u xaelwiki -f"
 echo
 echo "token file: $ENV_FILE (mode 600, never commit or paste it)"
 echo "notes live in $NOTES_DIR"

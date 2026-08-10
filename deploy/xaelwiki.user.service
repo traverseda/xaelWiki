@@ -1,0 +1,20 @@
+[Unit]
+Description=xaelwiki notes MCP server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__INSTALL_DIR__
+Environment=XAEL_TRANSPORT=streamable-http
+Environment=XAEL_HOST=0.0.0.0
+Environment=XAEL_PORT=8000
+Environment=XAEL_PATH=/mcp
+# Token is loaded from a 0600 file, not hardcoded here.
+EnvironmentFile=%h/.config/xaelwiki/env
+# Environment=XAEL_READ_ONLY=1
+# Environment=XAEL_AUTO_PUSH=0
+ExecStart=__INSTALL_DIR__/.venv/bin/xaelwiki
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
