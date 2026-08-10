@@ -34,8 +34,12 @@ class GitRepo:
             result = self._run("init", "-b", "main")
             if result.returncode:
                 raise GitError(result.stderr.strip() or "git init failed")
-            self._run("config", "user.name", "xaelwiki")
-            self._run("config", "user.email", "xaelwiki@local")
+        name = self._run("config", "--local", "--get", "user.name")
+        email = self._run("config", "--local", "--get", "user.email")
+        if not name.stdout.strip():
+            self._run("config", "--local", "user.name", "xaelwiki")
+        if not email.stdout.strip():
+            self._run("config", "--local", "user.email", "xaelwiki@local")
         self.root.joinpath("notes").mkdir(parents=True, exist_ok=True)
 
     def has_remote(self) -> bool:

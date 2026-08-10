@@ -74,9 +74,9 @@ fi
 if [[ ! -d "$INSTALL_DIR/.git" ]]; then
     echo "==> initializing notes git repo"
     git init -b main "$INSTALL_DIR"
-    git -C "$INSTALL_DIR" config user.name "xaelwiki"
-    git -C "$INSTALL_DIR" config user.email "xaelwiki@local"
 fi
+git -C "$INSTALL_DIR" config user.name "xaelwiki"
+git -C "$INSTALL_DIR" config user.email "xaelwiki@local"
 
 ENV_FILE="${ENV_FILE:-$HOME/.config/xaelwiki/env}"
 if [[ ! -s "$ENV_FILE" ]]; then

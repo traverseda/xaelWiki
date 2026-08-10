@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -50,3 +51,21 @@ def test_log_empty_repo(tmp_path: Path):
     git = GitRepo(tmp_path)
     assert git.log() == []
     assert git.revert(1)["reverted"] == []
+
+
+def test_ensure_sets_identity_when_missing(tmp_path: Path):
+    git = GitRepo(tmp_path)
+    git.ensure()
+    assert git._run("config", "--local", "--get", "user.name").stdout.strip() == "xaelwiki"
+    assert git._run("config", "--local", "--get", "user.email").stdout.strip() == "xaelwiki@local"
+
+
+def test_ensure_does_not_clobber_existing_identity(tmp_path: Path):
+    subprocess.run(["git", "-C", str(tmp_path), "init", "-b", "main"], capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "--local", "user.name", "someone-else"], capture_output=True)
+    subprocess.run(["git", "-C", str(tmp_path), "config", "--local", "user.email", "someone@else.dev"], capture_output=True)
+
+    git = GitRepo(tmp_path)
+    git.ensure()
+    assert git._run("config", "--local", "--get", "user.name").stdout.strip() == "someone-else"
+    assert git._run("config", "--local", "--get", "user.email").stdout.strip() == "someone@else.dev"
