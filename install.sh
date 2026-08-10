@@ -47,12 +47,21 @@ fi
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "==> installing uv"
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    if [[ "$SCOPE" == "system" ]]; then
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+    else
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    fi
 fi
+export PATH="/usr/local/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
 echo "==> installing python dependencies"
-uv sync --project "$INSTALL_DIR"
+if [[ "$SCOPE" == "system" ]]; then
+    runuser -u "$SERVICE_USER" -- bash -c \
+        "export PATH='$PATH'; uv sync --project '$INSTALL_DIR'"
+else
+    uv sync --project "$INSTALL_DIR"
+fi
 
 if [[ "$SCOPE" == "system" ]]; then
     chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
