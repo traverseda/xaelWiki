@@ -120,6 +120,36 @@ def test_tag_add_remove(tmp_path):
     assert out["tags"] == ["b"]
 
 
+def test_tag_noop_writes_nothing(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="x", tags=["a"])
+    path = store.notes_dir / n["path"]
+    before = path.read_text(encoding="utf-8")
+    out = store.set_tags(n["id"], add=["a"], remove=["missing"])
+    assert out["revision"] == n["revision"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_update_identical_content_noop(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="x")
+    path = store.notes_dir / n["path"]
+    before = path.read_text(encoding="utf-8")
+    updated = store.update(n["id"], "x", n["revision"], title="Note")
+    assert updated["revision"] == n["revision"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_move_noop_writes_nothing(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="x")
+    path = store.notes_dir / n["path"]
+    before = path.read_text(encoding="utf-8")
+    moved = store.move(n["id"], folder="00-inbox")
+    assert moved["revision"] == n["revision"]
+    assert path.read_text(encoding="utf-8") == before
+
+
 def test_move_files_and_sets_status(tmp_path):
     store = make_store(tmp_path)
     n = store.capture("Project thing", body="x")

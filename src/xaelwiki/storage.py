@@ -385,7 +385,10 @@ class NoteStore:
                 f"revision mismatch: note changed since it was read "
                 f"(expected {revision[:8]}…, current {current[:8]}…)"
             )
-        return self._final(self._write(note, content, title=title))
+        if title in (None, note["title"]) and content == note["body"]:
+            return self._final(note)
+        result = self._final(self._write(note, content, title=title))
+        return result
 
     def set_tags(
         self,
@@ -404,7 +407,10 @@ class NoteStore:
             tag = tag.strip()
             if tag in tags:
                 tags.remove(tag)
-        return self._final(self._write(note, note["body"], tags=tags))
+        if tags == note["tags"]:
+            return self._final(note)
+        result = self._final(self._write(note, note["body"], tags=tags))
+        return result
 
     def move(
         self,
@@ -422,6 +428,9 @@ class NoteStore:
         new_slug = self._unique_slug(new_slug, new_folder, exclude=note["path"])
         new_path = f"{new_folder}/{new_slug}.md"
         old_path = note["path"]
+
+        if new_path == old_path and new_status == note["status"]:
+            return self._final(note)
 
         if new_path != old_path:
             self._repair_backlinks(note["slug"], new_slug)

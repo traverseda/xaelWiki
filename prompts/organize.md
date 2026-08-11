@@ -36,6 +36,10 @@ Start by reading `xael://conventions` and `xael://index`.
 
 ## Guardrails
 
+- **No changes means no files.** If a batch ends with nothing left to do, do
+  nothing: no journal note, no archive memo, no capture-log entry, no "ran
+  with no changes" memo. `move`/`tag`/`update` with no effective change are
+  no-ops server-side, so an empty inbox run must produce zero commits.
 - Work in small batches. Decide one note fully before moving on; never
   batch-rewrite blindly.
 - **Never overwrite another writer's recent change.** A revision conflict on
