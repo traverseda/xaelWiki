@@ -23,16 +23,21 @@ Start by reading `xael://conventions` and `xael://index`.
 
 4. **Promote.** Move to its folder, set status, standardize title and slug,
    add tags, fill `links` to every note it actually relates to, and retire
-   anything the promotion makes redundant.
+   anything the promotion makes redundant. Note links use the root-relative
+   form `](../<folder>/<slug>.md)` — it resolves from any folder, and the
+   server rejects writes that create unresolvable links, so fix a reported
+   link before moving on.
 
 5. **Spawn structure notes.** When several notes orbit one idea and nothing
    gathers them, `capture` a short index note into `30-resources` that links
    them — a map of contents, not a summary. Only when it genuinely improves
    navigation; do not build structure notes for everything.
 
-6. **Maintain the index.** Regenerate `_meta/INDEX.md` and `_meta/TAGS.md` so
-   navigation reflects reality, and append a short line to `_meta/capture-log.md`
-   (or a journal note) summarizing what you changed and why.
+6. **Verify the index.** `_meta/INDEX.md` and `_meta/TAGS.md` are regenerated
+   by the server on every write — never edit them by hand. After a batch,
+   re-read `xael://index` and `xael://tags` to confirm navigation reflects
+   reality, and append a short line to `_meta/capture-log.md` (or a journal
+   note) summarizing what you changed and why.
 
 ## Guardrails
 

@@ -5,6 +5,7 @@ import pytest
 from xaelwiki.storage import (
     FOLDERS,
     NoteConflict,
+    NoteError,
     NoteNotFound,
     NoteStore,
     ReadOnly,
@@ -173,16 +174,128 @@ def test_move_renames_slug_and_repairs_backlinks(tmp_path):
     b = store.capture("Beta", body="see [Alpha](alpha) and [Alpha](alpha.md) ref")
     store.move(a["id"], folder="30-resources", title="Alpha Prime")
     out = store.read(b["id"])
-    assert out["content"] == "see [Alpha](alpha-prime) and [Alpha](alpha-prime.md) ref\n"
+    assert (
+        out["content"]
+        == "see [Alpha](../30-resources/alpha-prime.md) and [Alpha](../30-resources/alpha-prime.md) ref\n"
+    )
 
 
 def test_move_does_not_touch_unrelated_links(tmp_path):
     store = make_store(tmp_path)
     a = store.capture("Alpha", body="content")
+    store.capture("Alphabet", body="alphabetical")
     b = store.capture("Beta", body="see [Alphabet](alphabet) ref")
     store.move(a["id"], folder="30-resources", title="Alpha Prime")
     out = store.read(b["id"])
     assert "(alphabet)" in out["content"]
+
+
+def test_capture_rejects_broken_link(tmp_path):
+    store = make_store(tmp_path)
+    with pytest.raises(NoteError, match="broken note link"):
+        store.capture("Note", body="see [Ghost](ghost.md)")
+
+
+def test_capture_rejects_bare_cross_folder_link(tmp_path):
+    store = make_store(tmp_path)
+    r = store.capture("Resource thing", body="x")
+    store.move(r["id"], folder="30-resources")
+    with pytest.raises(NoteError, match="broken note link"):
+        store.capture("New", body="see [Resource thing](resource-thing.md)")
+
+
+def test_capture_allows_valid_canonical_link(tmp_path):
+    store = make_store(tmp_path)
+    r = store.capture("Resource thing", body="x")
+    store.move(r["id"], folder="30-resources")
+    n = store.capture("New", body="see [Resource thing](../30-resources/resource-thing.md)")
+    assert n["id"]
+
+
+def test_capture_allows_valid_same_folder_bare_link(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Alpha", body="x")
+    n = store.capture("Beta", body="see [Alpha](alpha)")
+    assert n["id"]
+
+
+def test_append_rejects_new_broken_link(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="ok")
+    with pytest.raises(NoteError, match="broken note link"):
+        store.append(n["id"], "see [Ghost](ghost.md)")
+
+
+def test_append_allows_grandfathered_broken_link(tmp_path):
+    store = make_store(tmp_path)
+    b = store.capture("Beta", body="plain")
+    path = store.notes_dir / b["path"]
+    text = path.read_text(encoding="utf-8").replace("plain", "see [Ghost](ghost.md)")
+    path.write_text(text, encoding="utf-8")
+    out = store.append(b["id"], "more")
+    assert "more" in out["content"]
+    assert "ghost.md" in store.read(b["id"])["content"]
+
+
+def test_update_rejects_new_broken_link(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="ok")
+    with pytest.raises(NoteError, match="broken note link"):
+        store.update(n["id"], "see [Ghost](ghost.md)", n["revision"])
+
+
+def test_move_canonicalizes_own_links(tmp_path):
+    store = make_store(tmp_path)
+    r = store.capture("Resource thing", body="x")
+    m = store.capture("Move me", body="see [Resource thing](resource-thing.md)")
+    store.move(r["id"], folder="30-resources")
+    out = store.move(m["id"], folder="10-projects")
+    assert "](../30-resources/resource-thing.md)" in out["content"]
+
+
+def test_meta_layout_created(tmp_path):
+    store = make_store(tmp_path)
+    for name in ("INDEX.md", "TAGS.md", "capture-log.md"):
+        assert (store.notes_dir / "_meta" / name).exists()
+
+
+def test_capture_regenerates_index_and_tags(tmp_path):
+    store = make_store(tmp_path)
+    store.capture("Postgres row locking", body="rows are locked", tags=["db", "sql"])
+    store.capture("Rust ownership", body="borrow checker", tags=["rust"])
+
+    index = (store.notes_dir / "_meta" / "INDEX.md").read_text(encoding="utf-8")
+    tags = (store.notes_dir / "_meta" / "TAGS.md").read_text(encoding="utf-8")
+
+    assert "## 00-inbox" in index
+    assert "[Postgres row locking](../00-inbox/postgres-row-locking.md)" in index
+    assert "[Rust ownership](../00-inbox/rust-ownership.md)" in index
+    assert "## db" in tags
+    assert "## rust" in tags
+    assert "[Rust ownership](../00-inbox/rust-ownership.md) — `00-inbox`" in tags
+
+
+def test_move_regenerates_index(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Project thing", body="x")
+    store.move(n["id"], folder="10-projects")
+    index = (store.notes_dir / "_meta" / "INDEX.md").read_text(encoding="utf-8")
+    assert "## 10-projects" in index
+    assert "[Project thing](../10-projects/project-thing.md)" in index
+
+
+def test_tag_regenerates_tags(tmp_path):
+    store = make_store(tmp_path)
+    n = store.capture("Note", body="x")
+    store.set_tags(n["id"], add=["fresh"])
+    tags = (store.notes_dir / "_meta" / "TAGS.md").read_text(encoding="utf-8")
+    assert "## fresh" in tags
+
+
+def test_reindex_read_only_blocked(tmp_path):
+    store = make_store(tmp_path, read_only=True)
+    with pytest.raises(ReadOnly):
+        store.reindex()
 
 
 def test_search_query_tags_status_folder(tmp_path):

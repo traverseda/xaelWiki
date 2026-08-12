@@ -17,6 +17,8 @@ STATUSES = ("inbox", "active", "evergreen", "archived")
 DEFAULT_FOLDER = "00-inbox"
 META_DIR = "_meta"
 CAPTURE_LOG = "capture-log.md"
+INDEX_FILE = "INDEX.md"
+TAGS_FILE = "TAGS.md"
 
 FOLDER_STATUS = {
     "00-inbox": "inbox",
@@ -28,6 +30,7 @@ FOLDER_STATUS = {
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
 LINK_RE = re.compile(r"\]\((?P<slug>[^)\s]+?)(?P<ext>\.md)?(?P<anchor>#[^)\s]*)?\)")
+LINK_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 
 
 class NoteError(Exception):
@@ -97,7 +100,8 @@ class NoteStore:
         for folder in FOLDERS:
             (self.notes_dir / folder).mkdir(parents=True, exist_ok=True)
         (self.notes_dir / META_DIR).mkdir(parents=True, exist_ok=True)
-        (self.notes_dir / META_DIR / CAPTURE_LOG).touch(exist_ok=True)
+        for name in (CAPTURE_LOG, INDEX_FILE, TAGS_FILE):
+            (self.notes_dir / META_DIR / name).touch(exist_ok=True)
 
     def _require_write(self) -> None:
         if self.read_only:
@@ -232,6 +236,51 @@ class NoteStore:
         except OSError:
             return f"(no {name} prompt)"
 
+    def reindex(self) -> None:
+        """Regenerate _meta/INDEX.md and _meta/TAGS.md from the vault."""
+        self._require_write()
+        notes = self._scan()
+
+        def row(note: dict[str, Any]) -> str:
+            tags = ", ".join(f"`{t}`" for t in note.get("tags") or [])
+            suffix = f" · {tags}" if tags else ""
+            return (
+                f"- [{note['title']}](../{note['folder']}/{note['slug']}.md)"
+                f" — {note['status']}{suffix} · {note.get('updated', '')}"
+            )
+
+        index: list[str] = ["# Index", ""]
+        by_tag: dict[str, list[dict[str, Any]]] = {}
+        for folder in FOLDERS:
+            grouped = sorted(
+                (n for n in notes.values() if n.get("folder") == folder),
+                key=lambda n: (n.get("title") or "").lower(),
+            )
+            if not grouped:
+                continue
+            index.append(f"## {folder}")
+            index.extend(f"{row(note)}\n" for note in grouped)
+            index.append("")
+            for note in grouped:
+                for tag in note.get("tags") or []:
+                    by_tag.setdefault(tag, []).append(note)
+
+        tags: list[str] = ["# Tags", ""]
+        for tag in sorted(by_tag, key=str.lower):
+            tagged = sorted(by_tag[tag], key=lambda n: (n.get("title") or "").lower())
+            tags.append(f"## {tag}")
+            tags.extend(
+                f"- [{n['title']}](../{n['folder']}/{n['slug']}.md) — `{n['folder']}`\n"
+                for n in tagged
+            )
+            tags.append("")
+
+        self._write_meta(INDEX_FILE, "\n".join(index).rstrip("\n") + "\n")
+        self._write_meta(TAGS_FILE, "\n".join(tags).rstrip("\n") + "\n")
+
+    def _write_meta(self, name: str, content: str) -> None:
+        (self.notes_dir / META_DIR / name).write_text(content, encoding="utf-8")
+
     # ---------------------------------------------------------------- capture
 
     def capture(
@@ -258,9 +307,13 @@ class NoteStore:
             "source": source or "",
         }
         path = self.notes_dir / folder / f"{slug}.md"
-        path.write_text(frontmatter.render(fm, body or ""), encoding="utf-8")
+        body = body or ""
+        self._reject_broken_links(folder, body)
+        path.write_text(frontmatter.render(fm, body), encoding="utf-8")
         self._append_capture_log(note_id, title, source)
-        return self._final(self._parse(path))
+        result = self._final(self._parse(path))
+        self.reindex()
+        return result
 
     def _append_capture_log(self, note_id: str, title: str, source: str | None) -> None:
         path = self.notes_dir / META_DIR / CAPTURE_LOG
@@ -349,7 +402,10 @@ class NoteStore:
             body = body.rstrip("\n") + "\n\n" + block + "\n"
         else:
             body = block + "\n"
-        return self._final(self._write(note, body))
+        self._reject_broken_links(note["folder"], body, old_text=note["body"])
+        result = self._final(self._write(note, body))
+        self.reindex()
+        return result
 
     def _append_section(self, body: str, name: str, block: str) -> str:
         target = name.strip().lower()
@@ -387,7 +443,9 @@ class NoteStore:
             )
         if title in (None, note["title"]) and content == note["body"]:
             return self._final(note)
+        self._reject_broken_links(note["folder"], content, old_text=note["body"])
         result = self._final(self._write(note, content, title=title))
+        self.reindex()
         return result
 
     def set_tags(
@@ -410,6 +468,7 @@ class NoteStore:
         if tags == note["tags"]:
             return self._final(note)
         result = self._final(self._write(note, note["body"], tags=tags))
+        self.reindex()
         return result
 
     def move(
@@ -433,11 +492,26 @@ class NoteStore:
             return self._final(note)
 
         if new_path != old_path:
-            self._repair_backlinks(note["slug"], new_slug)
+            self._repair_backlinks(
+                note["folder"], note["slug"], new_folder, new_slug, exclude=note_id
+            )
+
+        body = note["body"]
+        if new_path != old_path and body:
+            body = self._canonicalize_links(
+                note, new_folder=new_folder, new_slug=new_slug
+            )
+            self._reject_broken_links(
+                new_folder,
+                body,
+                old_text=note["body"],
+                old_folder=note["folder"],
+                self_ref=(new_folder, new_slug),
+            )
 
         parsed = self._write(
             note,
-            note["body"],
+            body,
             title=new_title,
             folder=new_folder,
             status=new_status,
@@ -445,27 +519,151 @@ class NoteStore:
         if new_path != old_path:
             (self.notes_dir / new_path).write_text(parsed["_text"], encoding="utf-8")
             (self.notes_dir / old_path).unlink()
-            return self._final(self._parse(self.notes_dir / new_path))
-        return self._final(parsed)
+            result = self._final(self._parse(self.notes_dir / new_path))
+            self.reindex()
+            return result
+        result = self._final(parsed)
+        self.reindex()
+        return result
 
-    def _repair_backlinks(self, old_slug: str, new_slug: str) -> None:
-        if old_slug == new_slug:
+    def _repair_backlinks(
+        self,
+        old_folder: str,
+        old_slug: str,
+        new_folder: str,
+        new_slug: str,
+        *,
+        exclude: str | None = None,
+    ) -> None:
+        """Rewrite links that point at a moved note so they stay valid.
+
+        Links in the note's own folder use the bare `](<slug>)` form; links
+        elsewhere are root-relative `](../<folder>/<slug>.md)`. Every match is
+        normalized to the canonical `](../<new_folder>/<new_slug>.md)` form,
+        which resolves from any folder.
+        """
+        if new_folder == old_folder and new_slug == old_slug:
             return
-        pattern = re.compile(
+        bare = re.compile(
             r"\]\(" + re.escape(old_slug) + r"(\.md)?(#[^)\s]*)?\)"
         )
+        canonical = re.compile(
+            r"\]\(\.\./" + re.escape(old_folder) + r"/" + re.escape(old_slug)
+            + r"(\.md)?(#[^)\s]*)?\)"
+        )
 
-        def sub(match: re.Match[str]) -> str:
-            return "](" + new_slug + (match.group(1) or "") + (match.group(2) or "") + ")"
+        def to_canonical(match: re.Match[str]) -> str:
+            anchor = match.group(2) or ""
+            return f"](../{new_folder}/{new_slug}.md{anchor})"
 
         for other in self._notes.values():
-            if other["slug"] == old_slug:
+            if other["id"] == exclude:
                 continue
             text = other["_text"]
-            new_text = pattern.sub(sub, text)
+            if other["folder"] == old_folder:
+                new_text = bare.sub(to_canonical, text)
+                new_text = canonical.sub(to_canonical, new_text)
+            else:
+                new_text = canonical.sub(to_canonical, text)
             if new_text != text:
                 path = self.notes_dir / other["path"]
                 path.write_text(new_text, encoding="utf-8")
+
+    # ---------------------------------------------------------------- links
+
+    def _find_note(self, folder: str, slug: str) -> dict[str, Any] | None:
+        for note in self._notes.values():
+            if note["folder"] == folder and note["slug"] == slug:
+                return note
+        return None
+
+    @staticmethod
+    def _link_parts(folder: str, target: str) -> tuple[str, str] | None:
+        """Map a link target to (folder, slug) of the note it names.
+
+        Accepts the canonical root-relative form `../<folder>/<slug>` (with or
+        without `.md`) and the bare `<slug>` form, which resolves within the
+        note's own folder. External URLs return None.
+        """
+        if LINK_SCHEME.match(target):
+            return None
+        if target.startswith("../"):
+            parts = target[3:].split("/")
+        elif "/" in target:
+            parts = target.split("/")
+        else:
+            return folder, target
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        return None
+
+    def _broken_links(self, folder: str, text: str, self_ref: tuple[str, str] | None = None) -> list[str]:
+        """Return the note links in `text` that do not name a real note."""
+        known = {(n["folder"], n["slug"]) for n in self._notes.values()}
+        if self_ref:
+            known.add(self_ref)
+        broken = []
+        for m in LINK_RE.finditer(text):
+            parts = self._link_parts(folder, m.group("slug"))
+            if parts is None or parts not in known:
+                broken.append(m.group(0))
+        return broken
+
+    def _reject_broken_links(
+        self,
+        folder: str,
+        new_text: str,
+        old_text: str = "",
+        old_folder: str | None = None,
+        self_ref: tuple[str, str] | None = None,
+    ) -> None:
+        """Raise if a write introduces note links that do not resolve.
+
+        Only links that are new (not already present in `old_text`) are
+        reported, so pre-existing breakage never blocks a write.
+        """
+        new_broken = set(self._broken_links(folder, new_text, self_ref=self_ref))
+        old_broken = set(
+            self._broken_links(old_folder or folder, old_text, self_ref=self_ref)
+        )
+        added = new_broken - old_broken
+        if not added:
+            return
+        listed = ", ".join(sorted(added))
+        raise NoteError(
+            f"broken note link(s): {listed}. Note links must name a real note; "
+            f"use ](../<folder>/<slug>.md) to link across folders."
+        )
+
+    def _canonicalize_links(
+        self,
+        note: dict[str, Any],
+        *,
+        new_folder: str | None = None,
+        new_slug: str | None = None,
+    ) -> str:
+        """Rewrite bare `](<slug>)` links to the root-relative form.
+
+        `](slug)` becomes `](../<folder>/<slug>.md)` where <folder> is where
+        the linked note actually lives; unresolvable links are left untouched.
+        Self-references use the note's new location when it is moving.
+        """
+        def replace(match: re.Match[str]) -> str:
+            target = match.group("slug")
+            parts = self._link_parts(note["folder"], target)
+            if parts is None:
+                return match.group(0)
+            resolved = self._find_note(parts[0], parts[1])
+            if resolved is None:
+                return match.group(0)
+            if resolved["id"] == note["id"]:
+                folder, slug = new_folder or resolved["folder"], new_slug or resolved["slug"]
+            else:
+                folder, slug = resolved["folder"], resolved["slug"]
+            anchor = match.group("anchor") or ""
+            return f"](../{folder}/{slug}.md{anchor})"
+
+        return LINK_RE.sub(replace, note["body"])
 
     # ---------------------------------------------------------------- search
 

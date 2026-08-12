@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Auto-update xaelwiki: pull the pinned branch, reinstall deps, restart.
 # Invoked by the systemd timer; arguments are baked in by install.sh.
+#
+# This always reinstalls deps and restarts the service on every run, even
+# when the checkout is already current. That way a failed run can never
+# strand the server on stale code: if a previous run reset the checkout but
+# died before the restart (e.g. a transient `uv sync` failure), the next run
+# heals it. A naive "already up to date -> exit" short-circuit deadlocks into
+# that state permanently.
 set -euo pipefail
 
 INSTALL_DIR="${1:?error: install dir required}"
@@ -18,8 +25,6 @@ else
     restart=("systemctl" "restart" "xaelwiki")
 fi
 
-old_head="$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || echo none)"
-
 echo "==> fetching $BRANCH from origin"
 git -C "$INSTALL_DIR" fetch --depth 1 origin "$BRANCH"
 git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
@@ -27,12 +32,6 @@ git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
 if [[ "$SCOPE" == "system" ]]; then
     owner="$(stat -c '%U:%G' "$INSTALL_DIR")"
     chown -R "$owner" "$INSTALL_DIR"
-fi
-
-new_head="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
-if [[ "$old_head" == "$new_head" ]]; then
-    echo "==> already up to date"
-    exit 0
 fi
 
 echo "==> installing python dependencies"

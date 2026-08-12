@@ -80,6 +80,9 @@ by the last `read`. `undo` is git-backed and reverts the last `steps` commits.
 - `xael://conventions` — the conventions/why file (`notes/_meta/AGENTS.md`)
 - `xael://capture-log` — the append-only capture ledger
 
+`_meta/INDEX.md` and `_meta/TAGS.md` are regenerated automatically by the
+server after every write, so they always match the vault.
+
 ### Prompts (loaded on demand)
 
 - `capture` — when and how to record something (the *why* of a good capture)
@@ -180,7 +183,9 @@ give the agent the same MCP surface:
 2. Drain the inbox: dedupe, merge (by append), promote, or retire.
 3. Standardize frontmatter, tags, links; spawn structure notes when a cluster
    needs an entry point.
-4. Regenerate `_meta/INDEX.md` and `_meta/TAGS.md`.
+4. Re-check `xael://index` and `xael://tags` — the server regenerates
+   `_meta/INDEX.md` and `_meta/TAGS.md` on every write, so the organizer never
+   maintains them by hand.
 
 Guardrails are baked into the prompt: never overwrite a fresh revision, never
 delete (archive instead), work in small batches.

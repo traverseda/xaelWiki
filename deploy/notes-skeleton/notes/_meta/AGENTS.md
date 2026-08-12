@@ -35,3 +35,7 @@ that is imposed decays; structure that emerges is maintained.
 
 - **Address notes by id, refer to them by title.** Tool calls use the `id`
   from search results. Files themselves are readable slugs.
+
+- **Link notes with `](../<folder>/<slug>.md)`.** This root-relative form
+  resolves from any folder. A bare `](<slug>.md)` only works within the same
+  folder; the server rejects writes that create unresolvable links.
